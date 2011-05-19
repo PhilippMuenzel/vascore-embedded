@@ -187,7 +187,7 @@ void FMSDatabase::loadRunways()
 
 void FMSDatabase::loadNavaid()
 {
-    //char ce[128];
+    // char ce[128];
     ifstream file;
     string line;
     int i;
@@ -201,7 +201,7 @@ void FMSDatabase::loadNavaid()
     file.open(m_path_navaid.c_str());
     if (!file.is_open())
         return;
-    //XPLMDebugString("file was opened\n");
+    // XPLMDebugString("file was opened\n");
 
     while (getline(file, line)) {
         id = "";
@@ -237,19 +237,19 @@ void FMSDatabase::loadNavaid()
 
         if (type == "NDB") {
             Ndb *ndb_aid = new Ndb(id.c_str(), "", atof(lat.c_str()), atof(lon.c_str()),
-                                   atoi(freq.c_str())*1000, 0, 0, "");
-            //sprintf(ce, "NDB %s\n", ndb_aid->id().toStdString().c_str());
+                                   atof(freq.c_str())*100, 0, 0, "");
+            //sprintf(ce, "NDB %s, %d\n", ndb_aid->id().toStdString().c_str(), ndb_aid->freq());
             //XPLMDebugString(ce);
             m_ndb_map.insert(pair<string, Ndb*>(id, ndb_aid));
         }
         if (type == "VOR") {
             Vor *vor_aid = new Vor(id.c_str(), "", atof(lat.c_str()), atof(lon.c_str()),
-                                   atoi(freq.c_str())*1000, false, 0, 0, "");
+                                   atof(freq.c_str())*1000, false, 0, 0, "");
             m_vor_map.insert(pair<string, Vor*>(id, vor_aid));
         }
         if (type == "VORD") {
             Vor *vord_aid = new Vor(id.c_str(), "", atof(lat.c_str()), atof(lon.c_str()),
-                                    atoi(freq.c_str())*1000, true, 0, 0, "");
+                                    atof(freq.c_str())*1000, true, 0, 0, "");
             m_vor_map.insert(pair<string, Vor*>(id, vord_aid));
         }
         if (type == "ILS") {

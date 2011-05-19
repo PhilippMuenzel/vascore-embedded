@@ -81,212 +81,87 @@ FMSSystem::~FMSSystem()
 void FMSSystem::update()
 {
 
-
     Waypoint* active_wpt = route()->activeWaypoint();
     const Waypoint* prev_wpt = route()->previousWaypoint();
-    const Waypoint* next_wpt = route()->nextWaypoint();
+    //const Waypoint* next_wpt = route()->nextWaypoint();
 
-    float TurnRadiusNm = ground_speed.get()* Navcalc::METER_PER_SECOND_TO_KNOTS * 0.009;
+    if (ground_speed.get()*Navcalc::METER_PER_SECOND_TO_KNOTS > 40)
+        advance_override.set(0);
+    else
+        advance_override.set(1);
 
-
-    //----- waypoint switch stuff
-
-    bool waypoints_switched = false;
-
-    if (next_wpt == 0)
-        return;
-
-    do
+    if (active_wpt)
     {
-        waypoints_switched = false;
+        m_distanceToActiveWptNm =
+                Navcalc::getDistBetweenWaypoints(*irs()->position(), *active_wpt);
 
-        //----- set active stuff
+        m_trueTrackToActiveWpt =
+                Navcalc::getTrackBetweenWaypoints(*irs()->position(), *active_wpt);
+    }
+    if (prev_wpt)
+        m_distanceFromPreviousWptNm =
+                Navcalc::getDistBetweenWaypoints(*irs()->position(), *prev_wpt);
 
-        if (active_wpt != 0)
+    if (ground_speed.get() < 30.0)
+        m_hoursToActiveWpt = 0.0;
+    else
+        m_hoursToActiveWpt = m_distanceToActiveWptNm / (ground_speed.get()*Navcalc::METER_PER_SECOND_TO_KNOTS);
+
+    if (active_wpt && !active_wpt->holding().isValid())
+    {
+        static int last_dest = XPLMGetDestinationFMSEntry();
+
+        if (last_dest < XPLMGetDestinationFMSEntry())
         {
-            m_distanceToActiveWptNm =
-                    Navcalc::getDistBetweenWaypoints(*irs()->position(), *active_wpt);
-
-            m_trueTrackToActiveWpt =
-                    Navcalc::getTrackBetweenWaypoints(*irs()->position(), *active_wpt);
-
-            if (ground_speed.get() < 30.0)
-                m_hoursToActiveWpt = 0.0;
-            else
-                m_hoursToActiveWpt = m_distanceToActiveWptNm / (ground_speed.get()*Navcalc::METER_PER_SECOND_TO_KNOTS);
-        }
-
-        //----- set prev stuff
-
-        if (prev_wpt != 0)
-        {
-            m_distanceFromPreviousWptNm =
-                    Navcalc::getDistBetweenWaypoints(*irs()->position(), *prev_wpt);
-
-            double dummy1 = 0.0;
-            double dummy2 = 0.0;
-            double dummy3 = 0.0;
-
-            if (active_wpt != 0)
-                m_crossTrackDistanceNm =
-                        Navcalc::getCrossTrackDistance(*prev_wpt, *active_wpt, *irs()->position(),
-                                                       dummy1, dummy2, dummy3);
-        }
-
-        //----- check if to switch to the next waypoint and update last removed waypoint
-
-        // We check the TAS here in order to detect slew mode and to disable
-        // recalc when standing on the ground.
-        // We also check if we are inside an acive holding and if the exit
-        // holding flag ist set and we are inbound the holding fix
-
-        if (active_wpt != 0 &&
-                (!active_wpt->holding().isValid() ||
-                 (active_wpt->holding().exitHolding() &&
-                  (active_wpt->holding().status() == Holding::STATUS_INSIDE_LEG_1 ||
-                   active_wpt->holding().status() == Holding::STATUS_ENTRY_TO_FIX))) &&
-                ground_speed.get()*Navcalc::METER_PER_SECOND_TO_KNOTS > 30 &&
-                ground_speed.get()*Navcalc::METER_PER_SECOND_TO_KNOTS < 3000)
-        {
-            bool do_switch_waypoint = false;
-
-            bool alt_restriction_not_met =
-                    (active_wpt->restrictions().altitudeGreaterRestriction() &&
-                     altimeter_readout.get() < active_wpt->restrictions().altitudeRestrictionFt())
-                    ||
-                    (active_wpt->restrictions().altitudeSmallerRestriction() &&
-                     altimeter_readout.get() > active_wpt->restrictions().altitudeRestrictionFt());
-
-            bool alt_restriction_met =
-                    (active_wpt->restrictions().altitudeGreaterRestriction() &&
-                     altimeter_readout.get() >= active_wpt->restrictions().altitudeRestrictionFt())
-                    ||
-                    (active_wpt->restrictions().altitudeSmallerRestriction() &&
-                     altimeter_readout.get() <= active_wpt->restrictions().altitudeRestrictionFt());
-
-            //             Logger::log(QString("notmet=%1  met=%2  hdg2alt=%3").
-            //                         arg(alt_restriction_not_met).
-            //                         arg(alt_restriction_met).
-            //                         arg(active_wpt->asWaypointHdgToAlt() != 0));
-
-            if (active_wpt->asWaypointHdgToAlt() != 0)
-            {
-                if (!alt_restriction_not_met) do_switch_waypoint = true;
-            }
-            else
-            {
-                double turn_dist = TurnRadiusNm;
-
-                bool wpt_lies_behind =
-                        Navcalc::isWaypointBehind(m_trueTrackToActiveWpt, true_heading.get());
-
-                // calc the turn distance
-
-                if (next_wpt == 0 || active_wpt->restrictions().hasOverflyRestriction())
-                {
-                    // override turn dist for overfly waypoint
-                    turn_dist = 0.5;
-                }
-                else if (next_wpt != 0)
-                {
-                    // TODO check total turn value when >90 degrees
-                    // TODO check left/right turn flag
-
-                    // if there is another waypoint after the active waypoint
-                    turn_dist = Navcalc::getPreTurnDistance(
-                                0.5, TurnRadiusNm,
-                                (int)ground_speed.get()*Navcalc::METER_PER_SECOND_TO_KNOTS, true_heading.get(),
-                                route()->trueTrackFromActiveToNextWpt());
-
-                    if (Navcalc::getAbsHeadingDiff(
-                                true_heading.get(), route()->trueTrackFromActiveToNextWpt()) > 135)
-                    {
-                        turn_dist = 0.5;
-                    }
-                }
-
-                // check if we are on ground and the active waypoint lies behind us
-                if (onground.get() &&
-                        m_distanceToActiveWptNm <
-                        5 &&
-                        wpt_lies_behind)
-                {
-                    //Logger::log("FMCProcessor:slotRefresh: detected WPT lies behind");
-                    turn_dist = 5;
-                }
-
-                // switch to the next waypoint
-
-                // do not switch if ALT restriction not met
-                if ( ((!alt_restriction_not_met || active_wpt->asWaypointHdgToAlt() == 0) && m_distanceToActiveWptNm <= turn_dist) ||
-                        (alt_restriction_met && wpt_lies_behind &&
-                         qAbs(true_track.get() -
-                              route()->trueTrackFromPrevWaypoint(route()->activeWaypointIndex())) < 10.0))
-                {
-                    //                    Logger::log(QString("FMCProcessor:slotRefresh: @%1 gs=%2 dist=%3 turndist=%4").
-                    //                                arg(active_wpt->id()).
-                    //                                arg(m_flightstatus->ground_speed_kts).
-                    //                                arg(m_fmc_data.distanceToActiveWptNm()).
-                    //                                arg(turn_dist));
-
-                    if (wpt_lies_behind) active_wpt->restrictions().setOverflyRestriction(true);
-                    do_switch_waypoint = true;
-                }
-            }
-
-            if (do_switch_waypoint)
-            {
-                QTime overflown(zulu_hours.get(), zulu_minutes.get());
+            QTime overflown(zulu_hours.get(), zulu_minutes.get());
+            if (route()->nextWaypoint())
                 route()->switchToNextWaypoint(overflown);
-                active_wpt = route()->activeWaypoint();
-                prev_wpt = route()->previousWaypoint();
-                next_wpt = route()->nextWaypoint();
-                waypoints_switched = true;
-            }
-        } else if (active_wpt != 0 &&
-                   active_wpt->holding().isValid())
+        }
+        last_dest = XPLMGetDestinationFMSEntry();
+    }
+
+    if (active_wpt &&
+            active_wpt->holding().isValid())
+    {
+        advance_override.set(1);
+        if (m_distanceToActiveWptNm < 0.5 && nav_override.get() == 0)
         {
-            if (m_distanceToActiveWptNm < 0.5 && nav_override.get() == 0)
-            {
-                timer_start = time_sec.get();
-                nav_override.set(1);
-            }
-            if (nav_override.get() && (time_sec.get() - timer_start < 10)) {
-                if (active_wpt->holding().isLeftHolding())
-                    nav_override_crs.set(hdg.get() - 6);
-                else
-                    nav_override_crs.set(hdg.get() + 6);
-            } else if (nav_override.get() && (time_sec.get() - timer_start > 10 && time_sec.get() - timer_start < 180))
-                nav_override_crs.set(active_wpt->holding().holdingOutTrack());
-            else if (nav_override.get() && (time_sec.get() - timer_start > 180 && time_sec.get() - timer_start < 190))
-            {
-                if (active_wpt->holding().isLeftHolding())
-                    nav_override_crs.set(hdg.get() - 6);
-                else
-                    nav_override_crs.set(hdg.get() + 6);
-            } else if (nav_override.get() && (time_sec.get() - timer_start < 240))
-                nav_override_crs.set(active_wpt->holding().holdingTrack());
-            else if (nav_override.get() && (time_sec.get() - timer_start > 360) && active_wpt->holding().isActive())
-            {
-                nav_override_crs.set(active_wpt->holding().holdingOutTrack());
-                timer_start = time_sec.get();
-            } else if (nav_override.get() && (time_sec.get() - timer_start > 360) && !active_wpt->holding().isActive())
-            {
-                nav_override.set(0);
-                active_wpt->setHolding(Holding());
-            }
+            timer_start = time_sec.get();
+            nav_override.set(1);
+        }
+        if (nav_override.get() && (time_sec.get() - timer_start < 10)) {
+            if (active_wpt->holding().isLeftHolding())
+                nav_override_crs.set(hdg.get() - 6);
+            else
+                nav_override_crs.set(hdg.get() + 6);
+        } else if (nav_override.get() && (time_sec.get() - timer_start > 10 && time_sec.get() - timer_start < 180))
+            nav_override_crs.set(active_wpt->holding().holdingOutTrack());
+        else if (nav_override.get() && (time_sec.get() - timer_start > 180 && time_sec.get() - timer_start < 190))
+        {
+            if (active_wpt->holding().isLeftHolding())
+                nav_override_crs.set(hdg.get() - 6);
+            else
+                nav_override_crs.set(hdg.get() + 6);
+        } else if (nav_override.get() && (time_sec.get() - timer_start < 240))
+            nav_override_crs.set(active_wpt->holding().holdingTrack());
+        else if (nav_override.get() && (time_sec.get() - timer_start > 360) && active_wpt->holding().isActive())
+        {
+            nav_override_crs.set(active_wpt->holding().holdingOutTrack());
+            timer_start = time_sec.get();
+        } else if (nav_override.get() && (time_sec.get() - timer_start > 360) && !active_wpt->holding().isActive())
+        {
+            nav_override.set(0);
+            advance_override.set(0);
+            active_wpt->setHolding(Holding());
         }
     }
-    while(waypoints_switched);
 
-    //route()->resetAndRecalcSpecialWaypoints();
+
+    route()->resetAndRecalcSpecialWaypoints();
 };
 
 bool FMSSystem::isExec() {
-    if (m_saved_route != m_flight_route)
-        return true;
-    else
-        return false;
+    return (m_saved_route != m_flight_route);
 }
 
 StdWaypointList FMSSystem::getVorList(int zoom)

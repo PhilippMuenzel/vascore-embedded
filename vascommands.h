@@ -37,9 +37,11 @@
 #include <cstdio>
 #include "XPLMPlugin.h"
 
+namespace VASCORE {
+
 enum Function {
-    FSystem,
-    createFSystem
+    FSystem = 50707,
+    createFSystem = 63703
 };
 
 enum FMSInterfaces {
@@ -79,6 +81,6 @@ private:
     T* m_interface;
 };
 
-
+}
 
 #endif // VASCOMMANDS_H

@@ -27,7 +27,11 @@
 #include <cstdio>
 #include <vector>
 
+namespace VASCORE {
+
 FMSSystem* global_FMS = 0;
+
+}
 
 PLUGIN_API void XPluginReceiveMessage(XPLMPluginID plugin, long input, void* param)
 {
@@ -35,26 +39,26 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID plugin, long input, void* par
     {
         switch (input)
         {
-        case createFSystem:
+        case VASCORE::createFSystem:
         {
-            if (global_FMS)
+            if (VASCORE::global_FMS)
             {
-                delete global_FMS;
-                global_FMS = 0;
+                delete VASCORE::global_FMS;
+                VASCORE::global_FMS = 0;
             }
-            if (!global_FMS)
-                global_FMS = new FMSSystem;
+            if (!VASCORE::global_FMS)
+                VASCORE::global_FMS = new FMSSystem;
             int* result = static_cast<int*>(param);
             *result = 1;
         }
             break;
-        case FSystem:
+        case VASCORE::FSystem:
         {
-            InterfaceQuery* iq = static_cast<InterfaceQuery*>(param);
+            VASCORE::InterfaceQuery* iq = static_cast<VASCORE::InterfaceQuery*>(param);
             switch (iq->interfaceId)
             {
             case FMSSystem::iid:
-                iq->itsInterface = static_cast<FMSSystem*>(global_FMS);
+                iq->itsInterface = static_cast<FMSSystem*>(VASCORE::global_FMS);
 
                 break;
             default:
@@ -66,7 +70,7 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID plugin, long input, void* par
             break;
 
         default:
-            std::abort();
+             printf("unrecognized input to vascore, probably another plugin. Ignore.\n");
         }
     }
 }
@@ -92,5 +96,5 @@ PLUGIN_API void XPluginDisable(void)
 
 PLUGIN_API void XPluginStop(void)
 {
-    delete global_FMS;
+    delete VASCORE::global_FMS;
 }
